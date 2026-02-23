@@ -49,6 +49,8 @@ import { Octicon, OcticonSymbolVariant } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
 import { IStashEntry } from '../../models/stash-entry'
 import classNames from 'classnames'
+import { stat } from 'fs/promises'
+import { join } from 'path'
 import { hasWritePermission } from '../../models/github-repository'
 import { hasConflictedFiles } from '../../lib/status'
 import { createObservableRef } from '../lib/observable-ref'
@@ -247,6 +249,8 @@ interface IFilterChangesListState {
   readonly selectedItems: ReadonlyArray<IChangesListItem>
   readonly focusedRow: string | null
   readonly groups: ReadonlyArray<IFilterListGroup<IChangesListItem>>
+  /** File sizes in bytes, keyed by file path (absent for deleted files) */
+  readonly fileSizes: Map<string, number>
 }
 
 function getSelectedItemsFromProps(
@@ -359,7 +363,35 @@ export class FilterChangesList extends React.Component<
       selectedItems: getSelectedItemsFromProps(props),
       focusedRow: null,
       groups,
+      fileSizes: new Map<string, number>(),
     }
+  }
+
+  public componentDidMount() {
+    this.loadFileSizes(this.props.workingDirectory.files)
+  }
+
+  /** Asynchronously collect file sizes for all non-deleted working-directory files. */
+  private async loadFileSizes(
+    files: ReadonlyArray<WorkingDirectoryFileChange>
+  ) {
+    const repoPath = this.props.repository.path
+    const sizes = new Map<string, number>()
+
+    await Promise.all(
+      files
+        .filter(f => f.status.kind !== AppFileStatusKind.Deleted)
+        .map(async f => {
+          try {
+            const fileStat = await stat(join(repoPath, f.path))
+            sizes.set(f.path, fileStat.size)
+          } catch {
+            // File may not exist yet or cannot be read — just skip
+          }
+        })
+    )
+
+    this.setState({ fileSizes: sizes })
   }
 
   public componentWillReceiveProps(nextProps: IFilterChangesListProps) {
@@ -376,6 +408,16 @@ export class FilterChangesList extends React.Component<
         selectedItems: getSelectedItemsFromProps(nextProps),
         groups: [this.createListItems(nextProps.workingDirectory.files)],
       })
+    }
+
+    // Reload file sizes when the file list changes
+    if (
+      !arrayEquals(
+        nextProps.workingDirectory.files,
+        this.props.workingDirectory.files
+      )
+    ) {
+      this.loadFileSizes(nextProps.workingDirectory.files)
     }
   }
 
@@ -433,14 +475,14 @@ export class FilterChangesList extends React.Component<
       selection === DiffSelectionType.All
         ? true
         : selection === DiffSelectionType.None
-        ? false
-        : null
+          ? false
+          : null
 
     const include = isUncommittableSubmodule
       ? false
       : rebaseConflictState !== null
-      ? file.status.kind !== AppFileStatusKind.Untracked
-      : includeAll
+        ? file.status.kind !== AppFileStatusKind.Untracked
+        : includeAll
 
     const disableSelection =
       isCommitting || rebaseConflictState !== null || isUncommittableSubmodule
@@ -448,8 +490,8 @@ export class FilterChangesList extends React.Component<
     const checkboxTooltip = isUncommittableSubmodule
       ? 'This submodule change cannot be added to a commit in this repository because it contains changes that have not been committed.'
       : isPartiallyCommittableSubmodule
-      ? 'Only changes that have been committed within the submodule will be added to this repository. You need to commit any other modified or untracked changes in the submodule before including them in this repository.'
-      : undefined
+        ? 'Only changes that have been committed within the submodule will be added to this repository. You need to commit any other modified or untracked changes in the submodule before including them in this repository.'
+        : undefined
 
     return (
       <ChangedFile
@@ -462,6 +504,7 @@ export class FilterChangesList extends React.Component<
         checkboxTooltip={checkboxTooltip}
         focused={this.state.focusedRow === changeListItem.id}
         matches={matches}
+        fileSize={this.state.fileSizes.get(file.path)}
       />
     )
   }
@@ -518,8 +561,8 @@ export class FilterChangesList extends React.Component<
           ? `Discard Changes`
           : `Discard changes`
         : __DARWIN__
-        ? `Discard ${files.length} Selected Changes`
-        : `Discard ${files.length} selected changes`
+          ? `Discard ${files.length} Selected Changes`
+          : `Discard ${files.length} selected changes`
 
     return this.props.askForConfirmationOnDiscardChanges ? `${label}…` : label
   }

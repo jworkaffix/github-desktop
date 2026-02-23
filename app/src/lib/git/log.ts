@@ -34,13 +34,13 @@ function mapSubmoduleStatusFileModes(
         modifiedChanges: false,
       }
     : (srcMode === SubmoduleFileMode && status === 'D') ||
-      (dstMode === SubmoduleFileMode && status === 'A')
-    ? {
-        commitChanged: false,
-        untrackedChanges: false,
-        modifiedChanges: false,
-      }
-    : undefined
+        (dstMode === SubmoduleFileMode && status === 'A')
+      ? {
+          commitChanged: false,
+          untrackedChanges: false,
+          modifiedChanges: false,
+        }
+      : undefined
 }
 
 /**
@@ -373,4 +373,39 @@ export async function getAuthors(repository: Repository, shas: string[]) {
   assert.equal(authors.length, shas.length, 'Commit to author mismatch')
 
   return authors
+}
+
+/**
+ * Get the size of a file (in bytes) as it existed at the given commit.
+ *
+ * Uses `git ls-tree -l <commitish> -- <path>` which outputs a line like:
+ *   100644 blob <hash> <size>\t<path>
+ *
+ * Returns `undefined` when the file doesn't exist at that commit (e.g. it
+ * was deleted) or when parsing fails.
+ */
+export async function getFileSizeAtCommit(
+  repository: Repository,
+  commitish: string,
+  path: string
+): Promise<number | undefined> {
+  const result = await git(
+    ['ls-tree', '-l', commitish, '--', path],
+    repository.path,
+    'getFileSizeAtCommit',
+    { successExitCodes: new Set([0, 128]) }
+  )
+
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    return undefined
+  }
+
+  // Output format: "<mode> <type> <hash> <size>\t<path>"
+  const match = result.stdout.match(/^\S+\s+\S+\s+\S+\s+(\d+)\t/)
+  if (!match) {
+    return undefined
+  }
+
+  const size = parseInt(match[1], 10)
+  return isNaN(size) ? undefined : size
 }

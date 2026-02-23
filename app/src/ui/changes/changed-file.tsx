@@ -9,6 +9,7 @@ import { TooltipDirection } from '../lib/tooltip'
 import { TooltippedContent } from '../lib/tooltipped-content'
 import { AriaLiveContainer } from '../accessibility/aria-live-container'
 import { IMatches } from '../../lib/fuzzy-find'
+import { formatFileSize } from '../../lib/format-file-size'
 
 interface IChangedFileProps {
   readonly file: WorkingDirectoryFileChange
@@ -23,6 +24,8 @@ interface IChangedFileProps {
     file: WorkingDirectoryFileChange,
     include: boolean
   ) => void
+  /** Current size of the file in bytes (undefined for deleted files) */
+  readonly fileSize?: number
 }
 
 /** a changed file in the working directory for a given repository */
@@ -50,6 +53,7 @@ export class ChangedFile extends React.Component<IChangedFileProps, {}> {
       checkboxTooltip,
       focused,
       matches,
+      fileSize,
     } = this.props
     const { status, path } = file
     const fileStatus = mapStatus(status)
@@ -58,20 +62,22 @@ export class ChangedFile extends React.Component<IChangedFileProps, {}> {
     const checkboxWidth = 20
     const statusWidth = 16
     const filePadding = 5
+    const fileSizeLabelWidth = fileSize !== undefined ? 52 : 0
 
     const availablePathWidth =
       availableWidth -
       listItemPadding -
       checkboxWidth -
       filePadding -
-      statusWidth
+      statusWidth -
+      fileSizeLabelWidth
 
     const includedText =
       this.props.include === true
         ? 'included'
         : this.props.include === undefined
-        ? 'partially included'
-        : 'not included'
+          ? 'partially included'
+          : 'not included'
 
     const pathScreenReaderMessage = `${path} ${mapStatus(
       status
@@ -104,6 +110,12 @@ export class ChangedFile extends React.Component<IChangedFileProps, {}> {
         />
 
         <AriaLiveContainer message={pathScreenReaderMessage} />
+
+        {fileSize !== undefined && (
+          <span className="file-size" aria-hidden={true}>
+            {formatFileSize(fileSize)}
+          </span>
+        )}
         <TooltippedContent
           ancestorFocused={focused}
           openOnFocus={true}
